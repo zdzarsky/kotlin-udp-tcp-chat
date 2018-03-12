@@ -1,27 +1,24 @@
 package main.client
 
-import main.CommunicationChannel
-import main.Message
-import main.convertToBytes
+import main.*
+import main.multicast.MulticastReceiver
+import main.server.PORT
 import main.tcp.TCPMessageReceiver
 import main.udp.UDPMessageReceiver
 import java.io.ObjectInputStream
 import java.io.ObjectOutputStream
-import java.net.DatagramPacket
-import java.net.DatagramSocket
-import java.net.InetAddress
-import java.net.Socket
-import kotlin.concurrent.thread
+import java.net.*
 
 
 fun main(args: Array<String>) {
-    val me = Client("localhost", 12345)
+    val me = Client("localhost", 12345, 12344)
     println("Enter username: ")
     val username = readLine()
     println("Read username: $username")
     me.initialiseSockets()
     me.tcpConnect(username!!)
     me.udpInitialise()
+    me.multicastInitialise()
     while (true) {
         val message = readLine()
         when (message) {
@@ -44,7 +41,7 @@ fun main(args: Array<String>) {
 }
 
 
-class Client(val host: String, val port: Int) {
+class Client(val host: String, val port: Int, val multicastPort: Int) {
     var currentCommunicationChannel: CommunicationChannel = CommunicationChannel.TCP
     /* TCP */
     lateinit var tcpSocket: Socket
@@ -52,14 +49,22 @@ class Client(val host: String, val port: Int) {
     lateinit var username: String
     lateinit var output: ObjectOutputStream
     lateinit var input: ObjectInputStream
+
     /*UDP */
     lateinit var udpSocket: DatagramSocket
+
+    /* Multicast */
+    lateinit var multicastSocket: MulticastSocket
+    val multicast = InetAddress.getByName("224.2.2.4")
+
 
     fun initialiseSockets() {
         tcpSocket = Socket(InetAddress.getByName(host), port)
         println("TCP Initialised")
         udpSocket = DatagramSocket(tcpSocket.localPort)
         println("UDP Initialised")
+        multicastSocket = MulticastSocket(multicastPort)
+        multicastSocket.joinGroup(multicast)
     }
 
     fun tcpConnect(username: String) {
@@ -83,6 +88,10 @@ class Client(val host: String, val port: Int) {
         UDPMessageReceiver(udpSocket).start()
     }
 
+    fun multicastInitialise(){
+        MulticastReceiver(multicastSocket, username).start()
+    }
+
     fun send(message: String) {
         val msg = Message(username, message)
         when (currentCommunicationChannel) {
@@ -95,9 +104,13 @@ class Client(val host: String, val port: Int) {
                 udpSocket.send(packet)
             }
             CommunicationChannel.MULTICAST -> {
+                val bytes = convertToBytes(msg)
+                val packet = DatagramPacket(bytes, bytes.size, multicast, multicastSocket.localPort)
+                multicastSocket.send(packet)
             }
         }
     }
+
 
 
 }
